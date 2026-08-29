@@ -230,9 +230,36 @@ export async function main(argv: string[] = process.argv.slice(2), write: Writer
 }
 
 // Auto-run when invoked directly (script/bin), not when imported by tests.
+// Robust across `node dist/cli/index.js`, global bin shims (.cmd/.ps1), and
+// symlinked installs: compare real paths, tolerating .ts/.js and casing/symlink
+// differences. Tests import main() as a module, where argv[1] is the test
+// runner, so this stays false there.
 import { fileURLToPath } from "node:url";
-const entry = process.argv[1] ? resolve(process.argv[1]) : "";
-const self = fileURLToPath(import.meta.url);
-if (entry && (entry === self || entry === self.replace(/\.ts$/, ".js") || entry === self.replace(/\.js$/, ".ts"))) {
+import { realpathSync } from "node:fs";
+import { basename } from "node:path";
+
+function realOrRaw(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+function isDirectRun(): boolean {
+  const argv1 = process.argv[1];
+  if (!argv1) return false;
+  const entry = realOrRaw(resolve(argv1)).toLowerCase();
+  const self = realOrRaw(fileURLToPath(import.meta.url)).toLowerCase();
+  const norm = (s: string): string => s.replace(/\.(ts|js)$/i, "");
+  // Direct: `node dist/cli/index.js` (or the .ts under tsx).
+  if (norm(entry) === norm(self)) return true;
+  // Global bin shim launches the resolved package entry named `archmap`
+  // (npm strips the extension for the bin name). Only trust this when the
+  // entry basename is exactly the bin name, never a generic `index`.
+  return basename(entry).replace(/\.(ts|js)$/i, "") === "archmap";
+}
+
+if (isDirectRun()) {
   main().then((code) => process.exit(code));
 }
