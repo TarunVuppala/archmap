@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "architecture-mapper": {
-      "command": "python3",
-      "args": ["-m", "packages.cli", "mcp"],
+      "command": "archmap",
+      "args": ["mcp"],
       "cwd": "${workspaceFolder}"
     }
   }

@@ -5,3 +5,11 @@
 .archmap/agent-runs/
 __pycache__/
 *.py[cod]
+build/
+dist/
+*.egg-info/
+# Node / TypeScript
+node_modules/
+dist/
+*.tsbuildinfo
+npm-debug.log*

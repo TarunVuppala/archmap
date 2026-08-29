@@ -1,0 +1,37 @@
+{
+  "name": "archmap",
+  "version": "0.1.0",
+  "description": "Evidence-backed architecture mapping: one command that maps any codebase and answers what a change affects and why.",
+  "type": "module",
+  "bin": {
+    "archmap": "dist/cli/index.js"
+  },
+  "main": "dist/core/index.js",
+  "types": "dist/core/index.d.ts",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist",
+    "AGENTS.md",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli/index.ts",
+    "test": "tsx --test test/**/*.test.ts",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "better-sqlite3": "11.10.0",
+    "tree-sitter-wasms": "^0.1.12",
+    "web-tree-sitter": "^0.25.10"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.11",
+    "@types/node": "22.10.2",
+    "tsx": "4.19.2",
+    "typescript": "5.7.2"
+  },
+  "license": "MIT"
+}
