@@ -120,3 +120,45 @@ test("unknown command returns a structured error and exit code 2", async () => {
   assert.equal(payload.ok, false);
   assert.match(payload.error, /unknown command/);
 });
+
+test("archmap insights runs over an indexed repo", async () => {
+  const dir = makeRepo();
+  try {
+    await run(["init", dir, "--json"]);
+    const { code, out } = await run(["insights", "--workspace", dir, "--json"]);
+    assert.equal(code, 0);
+    const payload = JSON.parse(out);
+    assert.equal(payload.ok, true);
+    assert.ok(payload.insights, "expected an insights object");
+    assert.ok(Array.isArray(payload.insights.cycles));
+    assert.ok(Array.isArray(payload.insights.hubs));
+    assert.ok("hotspots_via" in payload.insights);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("archmap repo list works and repo add registers a sibling root", async () => {
+  const base = mkdtempSync(join(tmpdir(), "archmap-cli-repo-"));
+  try {
+    mkdirSync(join(base, "primary"), { recursive: true });
+    mkdirSync(join(base, "sibling"), { recursive: true });
+    writeFileSync(join(base, "primary", "a.ts"), "export function a(){ return 1; }\n");
+    await run(["init", join(base, "primary"), "--json"]);
+    const added = JSON.parse((await run(["repo", "add", join(base, "sibling"), "--name", "sib", "--workspace", join(base, "primary"), "--json"])).out);
+    assert.equal(added.ok, true);
+    assert.equal(added.added.kind, "root");
+    const listed = JSON.parse((await run(["repo", "list", "--workspace", join(base, "primary"), "--json"])).out);
+    assert.equal(listed.ok, true);
+    assert.equal(listed.counts.roots, 1);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("help text no longer marks commands as coming", async () => {
+  const { out } = await run(["help"]);
+  assert.doesNotMatch(out, /\(coming\)/);
+  assert.match(out, /insights/);
+  assert.match(out, /repo add/);
+});

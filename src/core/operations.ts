@@ -17,6 +17,8 @@ import { evaluatePolicy } from "./policy.js";
 import { validateGraph } from "./validate.js";
 import { flow } from "./flow.js";
 import { planChange, route, orchestrate } from "./agent.js";
+import { insights } from "./insights.js";
+import { projectMap } from "./maps.js";
 
 export const CORE_OPERATIONS = [
   "search",
@@ -36,6 +38,8 @@ export const CORE_OPERATIONS = [
   "plan_change",
   "route",
   "orchestrate",
+  "insights",
+  "map",
 ] as const;
 
 export type CoreOperation = (typeof CORE_OPERATIONS)[number];
@@ -126,6 +130,14 @@ function runOperation(store: GraphStore, operation: CoreOperation, args: Dispatc
       return route(String(args.task ?? args.kind ?? ""), { securitySensitive: Boolean(args.security_sensitive), ambiguity: num(args.ambiguity, 0) });
     case "orchestrate":
       return orchestrate(store, String(args.id ?? args.target ?? ""), String(args.intent ?? ""), workspace);
+    case "insights":
+      return insights(store, { workspace, topN: num(args.top ?? args.topN, 10) });
+    case "map":
+      return projectMap(store, String(args.view ?? args.id ?? "dependency"), {
+        nodeCap: args.node_cap !== undefined ? num(args.node_cap, 150) : undefined,
+        edgeCap: args.edge_cap !== undefined ? num(args.edge_cap, 300) : undefined,
+        focus: (args.focus as string) ?? null,
+      });
     case "health":
       return graphHealth(store);
     case "pin": {

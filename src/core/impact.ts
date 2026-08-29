@@ -9,6 +9,7 @@
 
 import type { Envelope, GraphEdge, GraphNode, PathResult } from "./contracts.js";
 import { DOWNSTREAM, GraphError, UPSTREAM, type GraphStore } from "./store.js";
+import { computeRisk } from "./risk.js";
 
 export interface ImpactOptions {
   direction?: "downstream" | "upstream";
@@ -74,6 +75,11 @@ export function impact(store: GraphStore, startIds: string | string[], options: 
     risk.push("untested");
   }
 
+  // Structured, quantified risk for the change target (first start), alongside
+  // the coarse chips above. Only meaningful downstream; upstream keeps chips.
+  const targetNode = store.getNode(starts[0]!);
+  const riskProfile = direction === "downstream" && targetNode ? computeRisk(store, targetNode, impacted, edges) : undefined;
+
   return {
     ok: true,
     nodes,
@@ -85,6 +91,7 @@ export function impact(store: GraphStore, startIds: string | string[], options: 
     tests_to_run: impacted.filter((n) => n.kind === "Test"),
     docs: impacted.filter((n) => n.kind === "Doc"),
     suggested_reviewers: [],
+    ...(riskProfile ? { risk_profile: riskProfile } : {}),
   };
 }
 

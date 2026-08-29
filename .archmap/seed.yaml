@@ -1,0 +1,10 @@
+# Architecture Mapper seed (optional).
+# Only fill this in when automatic inference is wrong or blind. Everything here
+# is upserted into the ONE graph; it is not a separate source of truth.
+project:
+  name: ""
+services: []
+externals: []
+pins: []
+ignore_paths: [node_modules/, dist/, build/, vendor/, generated/]
+critical: []

@@ -57,6 +57,7 @@ Commands:
   impact <id>                 bounded blast radius + why-paths
   diff [base] [head]          symbol-level diff impact
   graph                       export a bounded graph view
+  map <view>                  navigable projection: dependency|call|service|api|db|hierarchical (--focus <id>)
   search <query>              graph + RAG search
   symbol <id>                 node + neighbors
   neighbors <id>              adjacent edges/nodes
@@ -65,14 +66,20 @@ Commands:
   health                      graph consistency + inference health
   validate_graph              graph consistency checks
   evaluate_policy <id>        policy warnings for a change
+  insights                    cycles, coupling, bottlenecks, hubs, isolated, hotspots
   pin --type T --from A --to B  add a user-confirmed edge
-  flow <id>                   reconstruct a flow (coming with parsers)
-  plan_change <id>            bounded mutation envelope (coming)
-  orchestrate <task>          bounded agent workflow (coming)
-  route <task>                model route (coming)
-  ui | mcp | serve            surfaces (coming)
+  flow <id>                   reconstruct an evidence-backed flow
+  plan_change <id>            bounded mutation envelope
+  orchestrate <id>            bounded plan -> verify workflow
+  route <task>                capability/cost model route (provider-neutral)
+  narrate <id>                impact narration (LLM if configured, else deterministic)
+  repo add <url|path>         add a sibling/remote repo root (--ref, --github-api)
+  repo pull [name]            re-pull remote repo roots (explicit)
+  repo list                   list repo roots
+  ui | mcp | serve            visualizer / MCP stdio / localhost HTTP daemon
 
 Common flags: --workspace <path>  --db <path>  --json
+LLM (optional to configure, first-class when set): ARCHMAP_LLM_BASE_URL, ARCHMAP_LLM_MODEL, ARCHMAP_LLM_API_KEY
 `;
 
 export async function main(argv: string[] = process.argv.slice(2), write: Writer = (t) => process.stdout.write(t)): Promise<number> {
@@ -115,6 +122,9 @@ export async function main(argv: string[] = process.argv.slice(2), write: Writer
       case "graph":
         payload = dispatch("graph", { ...baseArgs, view: flagStr(flags, "view") ?? "architecture", format: flagStr(flags, "format") ?? "json" }, defaultWorkspace);
         break;
+      case "map":
+        payload = dispatch("map", { ...baseArgs, view: positionals[1] ?? flagStr(flags, "view") ?? "dependency", focus: flagStr(flags, "focus"), node_cap: flags["node-cap"], edge_cap: flags["edge-cap"] }, defaultWorkspace);
+        break;
       case "search":
         payload = dispatch("search", { ...baseArgs, q: positionals.slice(1).join(" "), kind: flagStr(flags, "kind"), limit: flags.limit }, defaultWorkspace);
         break;
@@ -138,6 +148,9 @@ export async function main(argv: string[] = process.argv.slice(2), write: Writer
         break;
       case "evaluate_policy":
         payload = dispatch("evaluate_policy", { ...baseArgs, id: positionals[1] }, defaultWorkspace);
+        break;
+      case "insights":
+        payload = dispatch("insights", { ...baseArgs, top: flags.top }, defaultWorkspace);
         break;
       case "pin":
         payload = dispatch("pin", { ...baseArgs, type: flagStr(flags, "type"), from: flagStr(flags, "from"), to: flagStr(flags, "to"), note: flagStr(flags, "note") }, defaultWorkspace);
@@ -185,8 +198,23 @@ export async function main(argv: string[] = process.argv.slice(2), write: Writer
         const target = positionals[1] ?? "";
         const impactEnv = dispatch("blast_radius", { ...baseArgs, id: target }, defaultWorkspace);
         const { narrateImpact } = await import("../llm/features.js");
-        const { narration, via } = await narrateImpact(target, impactEnv);
-        payload = { ...impactEnv, narration, narration_via: via } as Envelope;
+        const { narration, via, llm_status } = await narrateImpact(target, impactEnv);
+        payload = { ...impactEnv, narration, narration_via: via, llm_status } as Envelope;
+        break;
+      }
+      case "repo": {
+        const ws = resolve(workspaceFlag ?? ".");
+        const sub = positionals[1];
+        const { repoAdd, repoPull, repoList } = await import("../index/repo.js");
+        if (sub === "add") {
+          payload = repoAdd(ws, positionals[2] ?? "", { name: flagStr(flags, "name"), ref: flagStr(flags, "ref"), githubApi: Boolean(flags["github-api"]) });
+        } else if (sub === "pull") {
+          payload = await repoPull(ws, positionals[2]);
+        } else if (sub === "list") {
+          payload = repoList(ws);
+        } else {
+          payload = errorEnvelope("usage: archmap repo <add|pull|list> [target]");
+        }
         break;
       }
       default:

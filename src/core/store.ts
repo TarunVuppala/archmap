@@ -449,6 +449,37 @@ export class GraphStore {
       .get(nodeId, nodeId) as { d: number };
     return row.d;
   }
+
+  // ---- projection helpers (maps) -------------------------------------------
+
+  /** All nodes whose kind is in the given set. Ordered for determinism. */
+  nodesByKinds(kinds: readonly string[], limit = 2000): GraphNode[] {
+    if (kinds.length === 0) return [];
+    const capped = Math.max(1, Math.min(limit, 5000));
+    const placeholders = kinds.map(() => "?").join(",");
+    const rows = this.db
+      .prepare(`SELECT * FROM nodes WHERE kind IN (${placeholders}) ORDER BY kind, id LIMIT ?`)
+      .all(...kinds, capped) as NodeRow[];
+    return rows.map(nodeFromRow);
+  }
+
+  /** All edges whose type is in the given set. Ordered for determinism. */
+  edgesByTypes(types: readonly string[], limit = 4000): GraphEdge[] {
+    if (types.length === 0) return [];
+    const capped = Math.max(1, Math.min(limit, 10000));
+    const placeholders = types.map(() => "?").join(",");
+    const rows = this.db
+      .prepare(`SELECT * FROM edges WHERE type IN (${placeholders}) ORDER BY id LIMIT ?`)
+      .all(...types, capped) as EdgeRow[];
+    return rows.map(edgeFromRow);
+  }
+
+  countNodesByKind(): Record<string, number> {
+    const rows = this.db.prepare("SELECT kind, COUNT(*) AS c FROM nodes GROUP BY kind").all() as Array<{ kind: string; c: number }>;
+    const out: Record<string, number> = {};
+    for (const r of rows) out[r.kind] = r.c;
+    return out;
+  }
 }
 
 function nodeFromRow(row: NodeRow): GraphNode {

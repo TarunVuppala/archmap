@@ -11,6 +11,7 @@ import { createServer, type IncomingMessage, type ServerResponse, type Server } 
 import { dispatch } from "../core/operations.js";
 import { errorEnvelope } from "../core/contracts.js";
 import { toMermaid } from "../core/visualize.js";
+import { isMapView } from "../core/maps.js";
 import type { GraphEdge, GraphNode } from "../core/contracts.js";
 
 function send(res: ServerResponse, status: number, type: string, body: string): void {
@@ -19,11 +20,15 @@ function send(res: ServerResponse, status: number, type: string, body: string): 
 }
 
 export function graphView(workspace: string, view: string): { nodes: GraphNode[]; edges: GraphEdge[]; mermaid: string; ok: boolean; error?: string } {
-  const payload = dispatch("graph", { workspace, view }, workspace);
+  // Map lenses are projections of the one graph; system/depth/flow stay on graph.
+  const payload = isMapView(view)
+    ? dispatch("map", { workspace, view }, workspace)
+    : dispatch("graph", { workspace, view }, workspace);
   if (!payload.ok) return { nodes: [], edges: [], mermaid: "", ok: false, error: payload.error };
   const nodes = payload.nodes as GraphNode[];
   const edges = payload.edges as GraphEdge[];
-  return { nodes, edges, mermaid: toMermaid(nodes, edges), ok: true };
+  const mermaid = typeof payload.mermaid === "string" ? payload.mermaid : toMermaid(nodes, edges);
+  return { nodes, edges, mermaid, ok: true };
 }
 
 export const PAGE_HTML = `<!doctype html>
@@ -53,6 +58,12 @@ export const PAGE_HTML = `<!doctype html>
     <option value="architecture">Height (system)</option>
     <option value="depth">Depth (drill-down)</option>
     <option value="flow">Flow</option>
+    <option value="dependency">Map: dependency</option>
+    <option value="call">Map: call graph</option>
+    <option value="service">Map: service</option>
+    <option value="api">Map: API</option>
+    <option value="db">Map: database</option>
+    <option value="hierarchical">Map: hierarchy</option>
   </select>
   <button id="refresh">Refresh</button>
   <button id="copy">Copy Mermaid</button>

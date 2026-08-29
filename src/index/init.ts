@@ -15,6 +15,7 @@ const GITIGNORE_ENTRIES = [
   ".archmap/cache/",
   ".archmap/daemon.json",
   ".archmap/agent-runs/",
+  ".archmap/repos/",
 ];
 
 const MCP_JSON = {

@@ -32,7 +32,8 @@
 >    `archmap` command (also `npx archmap`). Every capability is a subcommand of
 >    this one command: `init`, `sync`, `impact`, `diff`, `flow`, `graph`,
 >    `search`, `symbol`, `neighbors`, `why_path`, `tests_to_run`, `docs`, `pin`,
->    `health`, `ui`, `mcp`, `serve`, `plan_change`, `orchestrate`, `route`. All
+>    `health`, `insights`, `narrate`, `ui`, `mcp`, `serve`, `plan_change`,
+>    `orchestrate`, `route`, plus `repo add/pull/list` for multi-repo. All
 >    support `--json`.
 > 3. **`archmap init` does everything in one shot:** create `.archmap/`, index
 >    the whole repo, write `.gitignore` entries + `.mcp.json` + a starter
@@ -52,12 +53,17 @@
 > 6. **`archmap ui`** serves the interactive visualizer (height / depth / flow
 >    views, React Flow + Cosmograph, Mermaid export) on localhost. Not
 >    auto-opened on init.
-> 7. **LLM optional and provider-neutral.** All impact/flows/search work fully
->    deterministically with zero AI. LLM features (domain naming, impact
->    narration, docs-vs-usage, dynamic-coupling hints) are opt-in and support
->    BOTH local and cloud models via a configurable base URL + API key
->    (env/config). The system functions normally with no LLM configured. No
->    provider lock-in.
+> 7. **LLM is a REQUIRED, first-class pipeline stage — provider-neutral.** The
+>    deterministic layer (parse + graph) is always the source of truth and
+>    evidence. On top of it, the LLM is a first-class stage for boundary/domain
+>    naming, why-path narration, docs-vs-usage reconciliation, and non-obvious /
+>    dynamic coupling hints. It works with any provider — local or cloud — via a
+>    configurable base URL + API key (env/config); no vendor lock-in. Hard rule:
+>    the LLM never invents edges. Every LLM-proposed edge MUST cite a real
+>    snippet that exists in the file and pass the verifier, or it is dropped.
+>    When no model is configured, run the full deterministic graph + impact and
+>    mark LLM-dependent outputs as `"unavailable — configure a model"`: never
+>    silently skip them, never hard-crash.
 > 8. **Verify, then build; delete Python last.** Build the TS Core first with
 >    tests, then CLI, then parsers, then ui/mcp/daemon. Delete the Python code
 >    only after the TS path is verified (`archmap init` on a fresh
@@ -65,6 +71,20 @@
 >    serving). Do not claim success on anything not actually run.
 > 9. **Disciplined scope.** Build the turnkey single-command experience, not
 >    extra abstractions.
+> 10. **Multi-repo, including remote GitHub.** One graph, many `Repo` roots.
+>     Node IDs are prefixed `repo:<name>/…` only when more than one root exists
+>     (single-root IDs stay unprefixed). Support: monorepo (auto), sibling repos
+>     on disk declared in `.archmap/workspace.yaml`, and remote GitHub repos the
+>     user does NOT keep locally. Remote default: shallow-clone into
+>     `.archmap/repos/` (gitignored) at a pinned ref; plus a no-clone GitHub API
+>     mode behind a flag. Auth is read from `GITHUB_TOKEN` / `GH_TOKEN` / the
+>     `gh` CLI; tokens are NEVER written to config, graph, or journal. Re-pull is
+>     explicit. Cross-repo edges are inferred only from evidence (e.g. OpenAPI
+>     producer↔consumer, shared contracts) and are correctable via `pin`.
+> 11. **`archmap insights` is a first-class CLI subcommand** (not just internal
+>     to visualize): cycles, high coupling, bottlenecks, hubs, isolated modules,
+>     hotspots, and large-downstream-impact — computed deterministically over the
+>     one graph, `--json` like every other command.
 
 ---
 
@@ -2995,25 +3015,14 @@ checks: write
 
 # Demo fixture
 
-`examples/payments-platform`:
-
-- `apps/payments`: FastAPI/Express, `processPayment()`, `validateTransaction()`, `POST /payments`, writes `payments`
-
-- `apps/orders`: consumes `POST /payments`
-
-- `apps/ledger-worker`: job reads/writes `ledger`
-
-- SQL or Prisma: `orders`, `payments`, `ledger`
-
-- OpenAPI for payments
-
-- tests that miss one critical path on purpose
-
-- one ADR
-
-- one real or stubbed external
-
-This is the judging demo.
+Out of scope for now — no bundled `examples/` fixture is shipped. The tool is
+verified end to end against ad-hoc workspaces (see the test suite under `test/`
+and the smoke runs in the README), which exercise the same shapes:
+`processPayment()` → `validateTransaction()` → `PaymentService` →
+`POST /payments` consumed by another service, plus SQL tables, OpenAPI specs,
+config, and infra. If a committed demo repo is wanted later, build it under
+`examples/payments-platform` with an `apps/` or `services/` layout so service
+identity is derived automatically.
 
 ---
 

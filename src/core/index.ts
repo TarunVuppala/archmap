@@ -45,6 +45,11 @@ export { diffImpact, type SymbolChange, type ChangeKind } from "./diff.js";
 export { evaluatePolicy } from "./policy.js";
 export { flow } from "./flow.js";
 export { planChange, route, orchestrate, type Tier } from "./agent.js";
+export { insights, type InsightsOptions } from "./insights.js";
+export { projectMap, MAP_VIEWS, isMapView, type MapView, type MapOptions } from "./maps.js";
+export { computeRisk, type RiskProfile } from "./risk.js";
+export { inferCrossRepoEdges } from "./crossrepo.js";
+export { prefixRepo, hasRepoPrefix, repoOf } from "./ids.js";
 export { serialize, deserialize } from "./serialize.js";
 export {
   dispatch,
