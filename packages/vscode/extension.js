@@ -5,6 +5,7 @@ const http = require('http');
 const path = require('path');
 
 const SERVER_NAME = 'architecture-mapper';
+const ARCHMAP_COMMAND = process.env.ARCHMAP_BIN || 'archmap';
 
 function activate(context) {
   const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
@@ -50,7 +51,7 @@ async function ensureDaemon(root) {
       try { fs.unlinkSync(path.join(root, '.archmap', 'daemon.json')); } catch (_) {}
     }
   }
-  return childProcess.spawn('python3', ['-m', 'packages.daemon', '--workspace', root], {
+  return childProcess.spawn(ARCHMAP_COMMAND, ['serve', '--workspace', root], {
     cwd: root,
     stdio: 'ignore',
     detached: false,
@@ -108,7 +109,7 @@ function mergeMcpConfig(root) {
   }
   config.mcpServers = config.mcpServers || {};
   config.mcpServers[SERVER_NAME] = {
-    command: 'python3', args: ['-m', 'packages.cli', 'mcp'], cwd: '${workspaceFolder}',
+    command: ARCHMAP_COMMAND, args: ['mcp'], cwd: '${workspaceFolder}',
   };
   fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
@@ -120,7 +121,7 @@ function registerMcpProvider(context, root) {
     const provider = {
       provideMcpServerDefinitions: () => {
         const definition = new vscode.McpStdioServerDefinition(
-          'Architecture Mapper', 'python3', ['-m', 'packages.cli', 'mcp'],
+          'Architecture Mapper', ARCHMAP_COMMAND, ['mcp'],
         );
         definition.cwd = root;
         return [definition];

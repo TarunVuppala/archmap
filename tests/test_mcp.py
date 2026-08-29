@@ -13,7 +13,7 @@ class McpTests(unittest.TestCase):
         initialized = server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
         self.assertEqual(initialized["result"]["serverInfo"]["name"], "architecture-mapper")
         listed = server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-        self.assertEqual({tool["name"] for tool in listed["result"]["tools"]}, {"sync", "blast_radius", "diff_impact", "docs_for", "pin", "health"})
+        self.assertTrue({"sync", "blast_radius", "diff_impact", "docs_for", "pin", "health", "search", "plan_change", "orchestrate", "route", "usage"}.issubset({tool["name"] for tool in listed["result"]["tools"]}))
         self.assertIsNone(server.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}))
 
     def test_sync_and_blast_radius_return_structured_json(self) -> None:

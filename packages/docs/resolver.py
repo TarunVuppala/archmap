@@ -128,6 +128,13 @@ def resolve_docs(
                 "sources": ["lockfile"],
                 "confidence": 1.0,
             })
+            if content.strip():
+                store.upsert_chunk({
+                    "id": f"chunk:{doc_id}",
+                    "node_id": doc_id,
+                    "kind": "doc",
+                    "text": content[:12000],
+                })
             docs.append({
                 "id": doc_id,
                 "package": ref.name,

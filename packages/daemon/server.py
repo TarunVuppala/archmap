@@ -10,6 +10,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from packages.agents import orchestrate, plan_change, route_task, usage_summary
+from packages.agents.queries import search_symbols, symbol, tests_to_run, why_path
+from packages.agents.prompts import apply_prompt_proposal, prompt_catalog, propose_prompt_change, record_prompt_proposal, review_prompt_proposal
+from packages.agents.telemetry import record_event
 from packages.diff.impact import diff_impact, git_diff
 from packages.docs import resolve_docs
 from packages.graph import GraphError, GraphStore
@@ -54,7 +58,52 @@ class ArchitectureHTTPServer(ThreadingHTTPServer):
             with GraphStore(database, workspace) as store:
                 edge = apply_pin(store, arguments.get("type"), arguments.get("from"), arguments.get("to"), arguments.get("note"))
             return {"ok": True, "nodes": [], "edges": [edge], "paths": [], "counts": {}, "risk": [], "evidence_used": True}
+        if operation == "route":
+            return {"ok": True, "nodes": [], "edges": [], "paths": [], "counts": {}, "risk": [], "evidence_used": True, "route": route_task(arguments.get("task", ""), complexity=arguments.get("complexity", "auto"), context_tokens=int(arguments.get("context_tokens", 0)), security_sensitive=bool(arguments.get("security_sensitive", False)))}
+        if operation == "open_graph":
+            return {"ok": False, "error": "IDE is not attached", "nodes": [], "edges": [], "paths": [], "counts": {}, "risk": [], "evidence_used": True, "id": arguments.get("id")}
+        if operation == "prompt_catalog":
+            return {"ok": True, "nodes": [], "edges": [], "paths": [], "counts": {"prompts": len(prompt_catalog())}, "risk": [], "evidence_used": True, "prompts": prompt_catalog()}
+        if operation == "prompt_propose":
+            proposal = propose_prompt_change(arguments.get("name", ""), arguments.get("current", ""), arguments.get("proposed", ""), arguments.get("reason", ""), proposer=arguments.get("proposer", "prompt-agent"), current_version=int(arguments.get("current_version", 1)), current_file=arguments.get("current_file"))
+            with GraphStore(database, workspace) as store:
+                return record_prompt_proposal(store, proposal)
+        if operation == "prompt_review":
+            proposal = arguments.get("proposal")
+            if not isinstance(proposal, dict):
+                raise GraphError("proposal must be an object")
+            reviewed = review_prompt_proposal(proposal, arguments.get("reviewer", ""), bool(arguments.get("approved", False)), arguments.get("note", ""))
+            with GraphStore(database, workspace) as store:
+                store.append_journal("prompt_review", {"proposal_id": reviewed["id"], "reviewer": reviewed["reviewer"], "approved": reviewed["approved"], "status": reviewed["status"]})
+            return {"ok": True, "nodes": [], "edges": [], "paths": [], "counts": {"prompt_reviews": 1}, "risk": [] if reviewed["approved"] else ["prompt_rejected"], "evidence_used": True, "proposal": reviewed}
+        if operation == "prompt_apply":
+            proposal = arguments.get("proposal")
+            if not isinstance(proposal, dict):
+                raise GraphError("proposal must be an object")
+            with GraphStore(database, workspace) as store:
+                return apply_prompt_proposal(workspace, proposal, arguments.get("target_file", ""), arguments.get("approver", ""), store=store)
         with GraphStore(database, workspace) as store:
+            if operation == "search":
+                return search_symbols(store, arguments.get("q", ""), arguments.get("kind"), int(arguments.get("limit", 20)))
+            if operation == "symbol":
+                return symbol(store, arguments.get("id", ""))
+            if operation == "neighbors":
+                return store.neighbors(arguments.get("id", ""), arguments.get("direction", "both"))
+            if operation == "why_path":
+                return why_path(store, arguments.get("from", ""), arguments.get("to", ""))
+            if operation == "tests_to_run":
+                return tests_to_run(store, arguments.get("id", ""))
+            if operation == "plan_change":
+                return plan_change(store, arguments.get("id"), arguments.get("intent"))
+            if operation == "orchestrate":
+                return orchestrate(store, arguments.get("task", ""), arguments.get("id"), arguments.get("intent"), int(arguments.get("max_agents", 2)))
+            if operation == "record_event":
+                payload = arguments.get("payload")
+                if not isinstance(payload, dict):
+                    raise GraphError("payload must be an object")
+                return record_event(store, arguments.get("event"), payload)
+            if operation == "usage":
+                return usage_summary(store)
             if operation == "graph":
                 payload = {
                     "ok": True,

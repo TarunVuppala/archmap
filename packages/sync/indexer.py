@@ -11,6 +11,7 @@ from typing import Iterable
 
 from packages.graph import GraphStore
 from packages.parse import parse_file
+from packages.rag import index_code_chunks
 from packages.seed import apply_seed
 from packages.seed.health import health_report
 
@@ -74,7 +75,7 @@ def sync_workspace(workspace: str | Path, database: str | Path | None = None, fo
             seen.add(relative)
             digest = _sha256(path)
             old_digest = (existing.get(relative, {}).get("extra") or {}).get("sha256")
-            if not force and old_digest == digest:
+            if not force and old_digest == digest and store.file_has_chunks(relative):
                 skipped_files.append(relative)
                 continue
             try:
@@ -96,6 +97,7 @@ def sync_workspace(workspace: str | Path, database: str | Path | None = None, fo
                 store.upsert_node(node)
             for edge in parsed.edges:
                 store.upsert_edge(edge)
+            index_code_chunks(store, relative, path.read_text(encoding="utf-8"), parsed.nodes)
             changed_files.append(relative)
             diagnostics.extend(f"{relative}: {item}" for item in parsed.diagnostics)
 

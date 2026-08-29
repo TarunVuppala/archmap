@@ -203,6 +203,57 @@ class GraphStore:
         ).fetchall()
         return [self._edge_dict(row) for row in rows]
 
+    def upsert_chunk(self, chunk: Mapping[str, Any]) -> dict[str, Any]:
+        """Upsert one RAG chunk that points at an existing graph node."""
+
+        chunk_id = str(chunk.get("id", "")).strip()
+        node_id = str(chunk.get("node_id", "")).strip()
+        kind = str(chunk.get("kind", "code")).strip()
+        text = str(chunk.get("text", "")).strip()
+        if not chunk_id or not node_id or not text:
+            raise GraphError("chunk id, node_id, and text are required")
+        if not self.get_node(node_id):
+            raise GraphError("chunk node_id must already exist as a node")
+        embedding = chunk.get("embedding")
+        if isinstance(embedding, list):
+            embedding = _json(embedding).encode("utf-8")
+        if embedding is not None and not isinstance(embedding, (bytes, bytearray, memoryview)):
+            raise GraphError("chunk embedding must be bytes or a numeric list")
+        self.connection.execute(
+            """
+            INSERT INTO chunks (id, node_id, kind, text, embedding, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              node_id=excluded.node_id,
+              kind=excluded.kind,
+              text=excluded.text,
+              embedding=excluded.embedding,
+              updated_at=excluded.updated_at
+            """,
+            (chunk_id, node_id, kind, text, embedding, chunk.get("updated_at") or _now()),
+        )
+        self.connection.commit()
+        return self.get_chunk(chunk_id)  # type: ignore[return-value]
+
+    def get_chunk(self, chunk_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute("SELECT * FROM chunks WHERE id = ?", (chunk_id,)).fetchone()
+        return self._chunk_dict(row) if row else None
+
+    def list_chunks(self, limit: int = 200) -> list[dict[str, Any]]:
+        limit = max(1, min(limit, 1000))
+        rows = self.connection.execute(
+            "SELECT * FROM chunks ORDER BY id LIMIT ?", (limit,)
+        ).fetchall()
+        return [self._chunk_dict(row) for row in rows]
+
+    def file_has_chunks(self, relative_path: str) -> bool:
+        row = self.connection.execute(
+            """SELECT 1 FROM chunks c JOIN nodes n ON n.id = c.node_id
+               WHERE n.path = ? LIMIT 1""",
+            (relative_path,),
+        ).fetchone()
+        return row is not None
+
     def remove_file(self, relative_path: str) -> None:
         """Remove symbols and parser edges owned by one file.
 
@@ -233,6 +284,7 @@ class GraphStore:
                 )
         if owned_ids:
             placeholders = ",".join("?" for _ in owned_ids)
+            self.connection.execute(f"DELETE FROM chunks WHERE node_id IN ({placeholders})", tuple(owned_ids))
             self.connection.execute(f"DELETE FROM nodes WHERE id IN ({placeholders})", tuple(owned_ids))
         self.connection.commit()
 
@@ -242,6 +294,19 @@ class GraphStore:
             (_now(), event, _json(dict(payload))),
         )
         self.connection.commit()
+
+    def list_journal(self, event: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit), 1000))
+        if event:
+            rows = self.connection.execute(
+                "SELECT ts, event, payload FROM journal WHERE event = ? ORDER BY rowid DESC LIMIT ?",
+                (event, limit),
+            ).fetchall()
+        else:
+            rows = self.connection.execute(
+                "SELECT ts, event, payload FROM journal ORDER BY rowid DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [{"ts": row["ts"], "event": row["event"], "payload": _load_json(row["payload"])} for row in rows]
 
     def set_health(self, key: str, value: Any) -> None:
         self.connection.execute(
@@ -329,6 +394,51 @@ class GraphStore:
     def get_edge(self, edge_id: str) -> dict[str, Any] | None:
         row = self.connection.execute("SELECT * FROM edges WHERE id = ?", (edge_id,)).fetchone()
         return self._edge_dict(row) if row else None
+
+    def find_nodes(self, query: str, kind: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
+        """Find graph nodes by stable ID or display name."""
+
+        query = str(query).strip()
+        if not query:
+            raise GraphError("query is required")
+        limit = max(1, min(int(limit), 50))
+        pattern = f"%{query}%"
+        if kind:
+            rows = self.connection.execute(
+                """SELECT * FROM nodes
+                   WHERE kind = ? AND (id LIKE ? OR name LIKE ?)
+                   ORDER BY CASE WHEN id = ? OR name = ? THEN 0 ELSE 1 END, kind, id LIMIT ?""",
+                (kind, pattern, pattern, query, query, limit),
+            ).fetchall()
+        else:
+            rows = self.connection.execute(
+                """SELECT * FROM nodes
+                   WHERE id LIKE ? OR name LIKE ?
+                   ORDER BY CASE WHEN id = ? OR name = ? THEN 0 ELSE 1 END, kind, id LIMIT ?""",
+                (pattern, pattern, query, query, limit),
+            ).fetchall()
+        return [self._node_dict(row) for row in rows]
+
+    def neighbors(self, node_id: str, direction: str = "both", limit: int = 50) -> dict[str, Any]:
+        if not self.get_node(node_id):
+            raise GraphError(f"unknown node: {node_id}")
+        if direction not in {"upstream", "downstream", "both"}:
+            raise GraphError("direction must be upstream, downstream, or both")
+        rows: list[sqlite3.Row] = []
+        if direction == "both":
+            rows = self.connection.execute(
+                "SELECT * FROM edges WHERE from_id = ? OR to_id = ? ORDER BY id",
+                (node_id, node_id),
+            ).fetchall()
+        else:
+            rules = DOWNSTREAM if direction == "downstream" else UPSTREAM
+            rows = [edge for edge, _ in self._neighbors(node_id, rules)]
+        edges = [self._edge_dict(row) for row in rows[: max(1, min(limit, 100))]]
+        ids = {node_id}
+        for edge in edges:
+            ids.update((edge["from"], edge["to"]))
+        nodes = [node for item in sorted(ids) if (node := self.get_node(item)) is not None]
+        return {"ok": True, "nodes": nodes, "edges": edges, "paths": [], "counts": {"nodes": len(nodes), "edges": len(edges)}, "risk": [], "evidence_used": all(edge["evidence"] for edge in edges)}
 
     def impact(
         self,
@@ -540,4 +650,11 @@ class GraphStore:
         result["evidence"] = _load_json(result["evidence"])
         result["sources"] = _load_json(result["sources"])
         result["conflict"] = bool(result["conflict"])
+        return result
+
+    @staticmethod
+    def _chunk_dict(row: sqlite3.Row) -> dict[str, Any]:
+        result = dict(row)
+        if isinstance(result.get("embedding"), (bytes, bytearray, memoryview)):
+            result["embedding"] = bytes(result["embedding"])
         return result

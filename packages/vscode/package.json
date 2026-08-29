@@ -11,6 +11,12 @@
     "workspaceContains:.git"
   ],
   "main": "./extension.js",
+  "files": [
+    "extension.js",
+    "package.json",
+    "resources/**",
+    "dist/**"
+  ],
   "contributes": {
     "commands": [
       {
@@ -42,7 +48,9 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && esbuild src/webview/App.tsx --bundle --outfile=dist/webview.js --format=iife --platform=browser"
+    "build": "tsc -p tsconfig.json && esbuild src/webview/App.tsx --bundle --outfile=dist/webview.js --format=iife --platform=browser",
+    "package": "npm run build && vsce package",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@xyflow/react": "^12.3.1",
@@ -55,6 +63,7 @@
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@types/vscode": "^1.95.0",
+    "@vscode/vsce": "^3.2.2",
     "esbuild": "^0.24.0",
     "typescript": "^5.6.0"
   }

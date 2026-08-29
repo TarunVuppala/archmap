@@ -11,6 +11,10 @@ import sys
 from pathlib import Path
 from typing import Any, TextIO
 
+from packages.agents import orchestrate, plan_change, route_task, usage_summary
+from packages.agents.queries import search_symbols, symbol, tests_to_run, why_path
+from packages.agents.prompts import apply_prompt_proposal, prompt_catalog, propose_prompt_change, record_prompt_proposal, review_prompt_proposal
+from packages.agents.telemetry import record_event
 from packages.diff.impact import diff_impact, git_diff
 from packages.docs import resolve_docs
 from packages.graph import GraphError, GraphStore
@@ -100,6 +104,81 @@ TOOL_DEFINITIONS = [
         "description": "Report graph consistency and inference health.",
         "inputSchema": {"type": "object", "properties": {"workspace": {"type": "string"}, "db": {"type": "string"}}},
     },
+    {
+        "name": "search",
+        "description": "Search graph-linked code and documentation chunks.",
+        "inputSchema": {"type": "object", "required": ["q"], "properties": {"q": {"type": "string"}, "kind": {"type": "string"}, "limit": {"type": "integer"}, "workspace": {"type": "string"}, "db": {"type": "string"}}},
+    },
+    {
+        "name": "symbol",
+        "description": "Return a symbol and its bounded graph neighbors.",
+        "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string"}, "workspace": {"type": "string"}, "db": {"type": "string"}}},
+    },
+    {
+        "name": "neighbors",
+        "description": "Return bounded graph neighbors for a node.",
+        "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string"}, "direction": {"type": "string"}, "workspace": {"type": "string"}, "db": {"type": "string"}}},
+    },
+    {
+        "name": "why_path",
+        "description": "Find evidence-backed paths between two graph nodes.",
+        "inputSchema": {"type": "object", "required": ["from", "to"], "properties": {"from": {"type": "string"}, "to": {"type": "string"}, "workspace": {"type": "string"}, "db": {"type": "string"}}},
+    },
+    {
+        "name": "tests_to_run",
+        "description": "Find tests and inferred commands for a graph node.",
+        "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string"}, "workspace": {"type": "string"}, "db": {"type": "string"}}},
+    },
+    {
+        "name": "plan_change",
+        "description": "Create a bounded, evidence-backed change envelope.",
+        "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}, "intent": {"type": "string"}, "workspace": {"type": "string"}, "db": {"type": "string"}}},
+    },
+    {
+        "name": "record_event",
+        "description": "Record an allowlisted incident, agent, verification, or usage event.",
+        "inputSchema": {"type": "object", "required": ["event", "payload"], "properties": {"event": {"type": "string"}, "payload": {"type": "object"}, "workspace": {"type": "string"}, "db": {"type": "string"}}},
+    },
+    {
+        "name": "usage",
+        "description": "Summarize journaled agent usage and estimated cost.",
+        "inputSchema": {"type": "object", "properties": {"workspace": {"type": "string"}, "db": {"type": "string"}}},
+    },
+    {
+        "name": "route",
+        "description": "Select the cheapest capable provider-neutral model route.",
+        "inputSchema": {"type": "object", "required": ["task"], "properties": {"task": {"type": "string"}, "complexity": {"type": "string"}, "context_tokens": {"type": "integer"}, "security_sensitive": {"type": "boolean"}}},
+    },
+    {
+        "name": "orchestrate",
+        "description": "Run a bounded plan, collaboration decision, and independent verification workflow.",
+        "inputSchema": {"type": "object", "required": ["task"], "properties": {"task": {"type": "string"}, "id": {"type": "string"}, "intent": {"type": "string"}, "max_agents": {"type": "integer"}, "workspace": {"type": "string"}, "db": {"type": "string"}}},
+    },
+    {
+        "name": "open_graph",
+        "description": "Request IDE focus for a graph node when an editor is attached.",
+        "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string"}, "workspace": {"type": "string"}, "db": {"type": "string"}}},
+    },
+    {
+        "name": "prompt_catalog",
+        "description": "List versioned built-in prompt manifests.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "prompt_propose",
+        "description": "Create a safety-checked prompt change requiring independent review.",
+        "inputSchema": {"type": "object", "required": ["name", "current", "proposed", "reason"], "properties": {"name": {"type": "string"}, "current": {"type": "string"}, "proposed": {"type": "string"}, "reason": {"type": "string"}, "proposer": {"type": "string"}, "current_version": {"type": "integer"}, "current_file": {"type": "string"}, "workspace": {"type": "string"}, "db": {"type": "string"}}},
+    },
+    {
+        "name": "prompt_review",
+        "description": "Approve or reject a prompt proposal without applying it.",
+        "inputSchema": {"type": "object", "required": ["proposal", "reviewer", "approved"], "properties": {"proposal": {"type": "object"}, "reviewer": {"type": "string"}, "approved": {"type": "boolean"}, "note": {"type": "string"}, "workspace": {"type": "string"}, "db": {"type": "string"}}},
+    },
+    {
+        "name": "prompt_apply",
+        "description": "Apply an approved prompt proposal after a hash and path safety check.",
+        "inputSchema": {"type": "object", "required": ["proposal", "target_file", "approver"], "properties": {"proposal": {"type": "object"}, "target_file": {"type": "string"}, "approver": {"type": "string"}, "workspace": {"type": "string"}, "db": {"type": "string"}}},
+    },
 ]
 
 
@@ -172,7 +251,55 @@ class McpServer:
             with GraphStore(database, workspace) as store:
                 edge = apply_pin(store, arguments.get("type"), arguments.get("from"), arguments.get("to"), arguments.get("note"))
             return {"ok": True, "nodes": [], "edges": [edge], "paths": [], "counts": {}, "risk": [], "evidence_used": True}
+        if name == "route":
+            return {"ok": True, "nodes": [], "edges": [], "paths": [], "counts": {}, "risk": [], "evidence_used": True, "route": route_task(arguments.get("task", ""), complexity=arguments.get("complexity", "auto"), context_tokens=int(arguments.get("context_tokens", 0)), security_sensitive=bool(arguments.get("security_sensitive", False)))}
+        if name == "orchestrate":
+            with GraphStore(database, workspace) as store:
+                return orchestrate(store, arguments.get("task", ""), arguments.get("id"), arguments.get("intent"), int(arguments.get("max_agents", 2)))
+        if name == "open_graph":
+            return {"ok": False, "error": "IDE is not attached", "nodes": [], "edges": [], "paths": [], "counts": {}, "risk": [], "evidence_used": True, "id": arguments.get("id")}
+        if name == "prompt_catalog":
+            return {"ok": True, "nodes": [], "edges": [], "paths": [], "counts": {"prompts": len(prompt_catalog())}, "risk": [], "evidence_used": True, "prompts": prompt_catalog()}
+        if name == "prompt_propose":
+            proposal = propose_prompt_change(arguments.get("name", ""), arguments.get("current", ""), arguments.get("proposed", ""), arguments.get("reason", ""), proposer=arguments.get("proposer", "prompt-agent"), current_version=int(arguments.get("current_version", 1)), current_file=arguments.get("current_file"))
+            with GraphStore(database, workspace) as store:
+                return record_prompt_proposal(store, proposal)
+        if name == "prompt_review":
+            proposal = arguments.get("proposal")
+            if not isinstance(proposal, dict):
+                raise GraphError("proposal must be an object")
+            reviewed = review_prompt_proposal(proposal, arguments.get("reviewer", ""), bool(arguments.get("approved", False)), arguments.get("note", ""))
+            with GraphStore(database, workspace) as store:
+                store.append_journal("prompt_review", {"proposal_id": reviewed["id"], "reviewer": reviewed["reviewer"], "approved": reviewed["approved"], "status": reviewed["status"]})
+            return {"ok": True, "nodes": [], "edges": [], "paths": [], "counts": {"prompt_reviews": 1}, "risk": [] if reviewed["approved"] else ["prompt_rejected"], "evidence_used": True, "proposal": reviewed}
+        if name == "prompt_apply":
+            proposal = arguments.get("proposal")
+            if not isinstance(proposal, dict):
+                raise GraphError("proposal must be an object")
+            with GraphStore(database, workspace) as store:
+                return apply_prompt_proposal(workspace, proposal, arguments.get("target_file", ""), arguments.get("approver", ""), store=store)
+        if name == "record_event":
+            payload = arguments.get("payload")
+            if not isinstance(payload, dict):
+                raise GraphError("payload must be an object")
+            with GraphStore(database, workspace) as store:
+                return record_event(store, arguments.get("event"), payload)
+        if name == "usage":
+            with GraphStore(database, workspace) as store:
+                return usage_summary(store)
         with GraphStore(database, workspace) as store:
+            if name == "search":
+                return search_symbols(store, arguments.get("q", ""), arguments.get("kind"), int(arguments.get("limit", 20)))
+            if name == "symbol":
+                return symbol(store, arguments.get("id", ""))
+            if name == "neighbors":
+                return store.neighbors(arguments.get("id", ""), arguments.get("direction", "both"))
+            if name == "why_path":
+                return why_path(store, arguments.get("from", ""), arguments.get("to", ""))
+            if name == "tests_to_run":
+                return tests_to_run(store, arguments.get("id", ""))
+            if name == "plan_change":
+                return plan_change(store, arguments.get("id"), arguments.get("intent"))
             if name == "blast_radius":
                 if not arguments.get("id"):
                     raise GraphError("id is required")
