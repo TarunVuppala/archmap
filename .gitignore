@@ -1,0 +1,7 @@
+.archmap/index.db
+.archmap/vectors/
+.archmap/cache/
+.archmap/daemon.json
+.archmap/agent-runs/
+__pycache__/
+*.py[cod]

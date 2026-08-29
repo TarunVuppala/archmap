@@ -1,0 +1,61 @@
+{
+  "name": "@archmap/vscode",
+  "displayName": "Architecture Mapper",
+  "description": "Local-first Architecture Mapper workspace extension",
+  "version": "0.1.0",
+  "publisher": "archmap",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "activationEvents": [
+    "workspaceContains:.git"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "architectureMapper.openGraph",
+        "title": "Architecture Mapper: Open Graph"
+      },
+      {
+        "command": "architectureMapper.showImpact",
+        "title": "Architecture Mapper: Show Impact"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "architectureMapper",
+          "title": "Architecture Mapper",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "architectureMapper": [
+        {
+          "id": "architectureMapper.sidebar",
+          "name": "Map / Impact / Docs / Health",
+          "type": "webview"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && esbuild src/webview/App.tsx --bundle --outfile=dist/webview.js --format=iife --platform=browser"
+  },
+  "dependencies": {
+    "@xyflow/react": "^12.3.1",
+    "@cosmos.gl/graph": "^1.4.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@types/vscode": "^1.95.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}
